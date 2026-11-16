@@ -1867,6 +1867,7 @@ void XilinxImpl::write_fasm(const std::string &filename)
 
     FasmBackend be(this->ctx, this, out);
     be.write_fasm();
+    close_ofstream_and_log_error(out, filename, "FASM file");
 }
 
 NEXTPNR_NAMESPACE_END

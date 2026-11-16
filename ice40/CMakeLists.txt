@@ -31,6 +31,7 @@ set(TEST_SOURCES
     tests/lp384.cc
     tests/lp8k.cc
     tests/main.cc
+    tests/output_file.cc
     tests/up5k.cc
 )
 
