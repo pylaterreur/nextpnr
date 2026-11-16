@@ -691,6 +691,9 @@ template <typename FrontendType> struct GenericFrontend
     // parent nets
     void merge_nets(NetInfo *base, NetInfo *mergee)
     {
+        // both can resolve to the same net
+        if (base == mergee)
+            return;
         // Resolve drivers
         if (mergee->driver.cell != nullptr) {
             if (base->driver.cell != nullptr)

@@ -27,6 +27,7 @@ set(SOURCES
 set(TEST_SOURCES
     tests/hx1k.cc
     tests/hx8k.cc
+    tests/json_frontend.cc
     tests/lp1k.cc
     tests/lp384.cc
     tests/lp8k.cc
