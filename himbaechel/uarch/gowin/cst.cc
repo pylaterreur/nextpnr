@@ -110,8 +110,7 @@ struct GowinCstReader
                 adc
             } cst_type;
 
-            while (!in.eof()) {
-                std::getline(in, line);
+            while (std::getline(in, line)) {
                 boost::trim_right(line);
                 if (line.empty()) {
                     continue;
