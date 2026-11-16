@@ -23,11 +23,37 @@
 #include <algorithm>
 #include <boost/range/adaptor/reversed.hpp>
 #include <deque>
+#include <limits>
 #include <map>
 #include <utility>
+#include "delay_wrap.h"
 #include "util.h"
 
 NEXTPNR_NAMESPACE_BEGIN
+
+namespace {
+DelayPair add_delay(const DelayPair &time, const DelayPair &delay)
+{
+    return DelayPair(wrap_add(time.min_delay, delay.min_delay), wrap_add(time.max_delay, delay.max_delay));
+}
+
+DelayPair subtract_delay(const DelayPair &time, const DelayPair &delay)
+{
+    return DelayPair(wrap_sub(time.min_delay, delay.min_delay), wrap_sub(time.max_delay, delay.max_delay));
+}
+
+// latest arrival minus earliest required time plus the offset between the clocks, for the setup check
+delay_t setup_path_delay(const DelayPair &arrival, const DelayPair &required, delay_t clock_to_clock)
+{
+    return wrap_add(wrap_sub(arrival.maxDelay(), required.minDelay()), clock_to_clock);
+}
+
+// earliest arrival minus latest required time plus the offset between the clocks, for the hold check
+delay_t hold_path_slack(const DelayPair &arrival, const DelayPair &required, delay_t clock_to_clock)
+{
+    return wrap_add(wrap_sub(arrival.minDelay(), required.maxDelay()), clock_to_clock);
+}
+} // namespace
 
 TimingAnalyser::TimingAnalyser(Context *ctx) : ctx(ctx)
 {
@@ -596,7 +622,7 @@ void TimingAnalyser::walk_forward()
                     for (auto &usr : net->users) {
                         CellPortKey usr_key(usr);
                         auto &usr_pd = ports.at(usr_key);
-                        auto next_arr = arr.second.value + usr_pd.route_delay;
+                        auto next_arr = add_delay(arr.second.value, usr_pd.route_delay);
                         set_arrival_time(usr_key, arr.first, next_arr, arr.second.path_length, p);
                     }
             } else if (pd.type == PORT_IN) {
@@ -605,7 +631,7 @@ void TimingAnalyser::walk_forward()
                     if (fanout.type != CellArc::COMBINATIONAL)
                         continue;
 
-                    auto next_arr = arr.second.value + fanout.value.delayPair();
+                    auto next_arr = add_delay(arr.second.value, fanout.value.delayPair());
                     set_arrival_time(CellPortKey(p.cell, fanout.other_port), arr.first, next_arr,
                                      arr.second.path_length + 1, p);
                 }
@@ -653,16 +679,16 @@ void TimingAnalyser::walk_backward()
                 NetInfo *net = port_info(p).net;
                 if (net != nullptr && net->driver.cell != nullptr)
                     set_required_time(CellPortKey(net->driver), req.first,
-                                      req.second.value - DelayPair(pd.route_delay.maxDelay()), req.second.path_length,
-                                      p);
+                                      subtract_delay(req.second.value, DelayPair(pd.route_delay.maxDelay())),
+                                      req.second.path_length, p);
             } else if (pd.type == PORT_OUT) {
                 // Output port : propagate delay back through cell, subtracting combinational delay
                 for (auto &fanin : pd.cell_arcs) {
                     if (fanin.type != CellArc::COMBINATIONAL)
                         continue;
                     set_required_time(CellPortKey(p.cell, fanin.other_port), req.first,
-                                      req.second.value - DelayPair(fanin.value.maxDelay()), req.second.path_length + 1,
-                                      p);
+                                      subtract_delay(req.second.value, DelayPair(fanin.value.maxDelay())),
+                                      req.second.path_length + 1, p);
                 }
             }
         }
@@ -694,7 +720,7 @@ dict<domain_id_t, delay_t> TimingAnalyser::max_delay_by_domain_pairs()
                     clock_to_clock = clock_delays.at(clocks);
                 }
 
-                auto delay = arr.value.maxDelay() - req.value.minDelay() + clock_to_clock;
+                auto delay = setup_path_delay(arr.value, req.value, clock_to_clock);
 
                 // If domains are unrelated or not the same clock we need to make sure
                 // to remove the clock delays from the arrival and required times
@@ -703,7 +729,7 @@ dict<domain_id_t, delay_t> TimingAnalyser::max_delay_by_domain_pairs()
                     for (auto &fanin : ep_port.cell_arcs) {
                         if (fanin.type == CellArc::SETUP) {
                             auto clock_delay = ports.at(CellPortKey(ep.first.cell, fanin.other_port)).route_delay;
-                            delay += clock_delay.minDelay();
+                            delay = wrap_add(delay, clock_delay.minDelay());
                         }
                     }
 
@@ -716,7 +742,7 @@ dict<domain_id_t, delay_t> TimingAnalyser::max_delay_by_domain_pairs()
                     for (auto &fanin : sp_port.cell_arcs) {
                         if (fanin.type == CellArc::CLK_TO_Q) {
                             auto clock_delay = ports.at(CellPortKey(sp.cell->name, fanin.other_port)).route_delay;
-                            delay -= clock_delay.maxDelay();
+                            delay = wrap_sub(delay, clock_delay.maxDelay());
                         }
                     }
                 }
@@ -755,12 +781,13 @@ void TimingAnalyser::compute_slack()
 
             auto &arr = pd.arrival.at(dp.key.launch);
             auto &req = pd.required.at(dp.key.capture);
-            pdp.second.setup_slack = 0 - (arr.value.maxDelay() - req.value.minDelay() + clock_to_clock);
+            pdp.second.setup_slack = wrap_sub(delay_t(0), setup_path_delay(arr.value, req.value, clock_to_clock));
             if (!setup_only)
-                pdp.second.hold_slack = arr.value.minDelay() - req.value.maxDelay() + clock_to_clock;
+                pdp.second.hold_slack = hold_path_slack(arr.value, req.value, clock_to_clock);
             pdp.second.max_path_length = arr.path_length + req.path_length;
             if (dp.key.launch == dp.key.capture)
-                pd.worst_setup_slack = std::min(pd.worst_setup_slack, dp.period.minDelay() + pdp.second.setup_slack);
+                pd.worst_setup_slack =
+                        std::min(pd.worst_setup_slack, wrap_add(dp.period.minDelay(), pdp.second.setup_slack));
             dp.worst_setup_slack = std::min(dp.worst_setup_slack, pdp.second.setup_slack);
             if (!setup_only) {
                 pd.worst_hold_slack = std::min(pd.worst_hold_slack, pdp.second.hold_slack);
@@ -780,8 +807,8 @@ void TimingAnalyser::compute_criticality()
             if (domains.at(dp.key.launch).key.is_async() || domains.at(dp.key.capture).key.is_async())
                 continue;
 
-            float crit =
-                    1.0f - (float(pdp.second.setup_slack) - float(dp.worst_setup_slack)) / float(-dp.worst_setup_slack);
+            float crit = 1.0f - (float(pdp.second.setup_slack) - float(dp.worst_setup_slack)) /
+                                        float(wrap_neg(dp.worst_setup_slack));
             crit = std::min(crit, 1.0f);
             crit = std::max(crit, 0.0f);
             pdp.second.criticality = crit;
@@ -1189,10 +1216,11 @@ void TimingAnalyser::build_slack_histogram_report()
                     if (launch.edge != capture.edge)
                         clk_period = clk_period / 2;
 
-                    delay_t delay = arr.second.value.maxDelay() - req.second.value.minDelay();
-                    delay_t slack = clk_period - delay;
+                    delay_t delay = setup_path_delay(arr.second.value, req.second.value, 0);
+                    // the delay can be a wrapped sentinel, so the slack can be out of range
+                    delay_t slack = slack_from_period(clk_period, delay);
 
-                    int slack_ps = ctx->getDelayNS(slack) * 1000;
+                    int slack_ps = saturating_cast<int>(ctx->getDelayNS(slack) * 1000);
                     slack_histogram[slack_ps]++;
                 }
             }
@@ -1236,7 +1264,7 @@ std::vector<CriticalPath> TimingAnalyser::get_min_delay_violations()
                     clock_to_clock = clock_delays.at(clocks);
                 }
 
-                auto hold_slack = arr.value.minDelay() - req.value.maxDelay() + clock_to_clock;
+                auto hold_slack = hold_path_slack(arr.value, req.value, clock_to_clock);
 
                 if (hold_slack <= 0) {
                     auto report = build_critical_path_report(dom_pair_id, ep.first, false);

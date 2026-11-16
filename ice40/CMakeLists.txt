@@ -25,6 +25,7 @@ set(SOURCES
 )
 
 set(TEST_SOURCES
+    tests/delay_wrap.cc
     tests/hx1k.cc
     tests/hx8k.cc
     tests/lp1k.cc
