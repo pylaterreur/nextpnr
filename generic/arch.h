@@ -248,8 +248,15 @@ struct Arch : BaseArch<ArchRanges>
 
     int getGridDimX() const override { return gridDimX; }
     int getGridDimY() const override { return gridDimY; }
-    int getTileBelDimZ(int x, int y) const override { return tileBelDimZ[x][y]; }
-    int getTilePipDimZ(int x, int y) const override { return tilePipDimZ[x][y]; }
+    int getTileBelDimZ(int x, int y) const override
+    {
+        // the tables only cover the tiles up to the last one that has a bel
+        return (x < int(tileBelDimZ.size()) && y < int(tileBelDimZ[x].size())) ? tileBelDimZ[x][y] : 0;
+    }
+    int getTilePipDimZ(int x, int y) const override
+    {
+        return (x < int(tilePipDimZ.size()) && y < int(tilePipDimZ[x].size())) ? tilePipDimZ[x][y] : 0;
+    }
     char getNameDelimiter() const override { return '/'; }
 
     BelId getBelByName(IdStringList name) const override;
