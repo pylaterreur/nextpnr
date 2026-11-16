@@ -8,6 +8,7 @@ function build_yosys {
     git clone --recursive https://github.com/YosysHQ/yosys ${YOSYS_PATH}
     pushd ${YOSYS_PATH}
     git reset --hard ${YOSYS_REVISION}
+    git submodule update --init --recursive
     mkdir -p build && cd build
     cmake -DCMAKE_INSTALL_PREFIX=$PREFIX ..
     make -j`nproc`
@@ -34,6 +35,7 @@ function build_trellis {
     git clone --recursive https://github.com/YosysHQ/prjtrellis ${TRELLIS_PATH}
     pushd ${TRELLIS_PATH}
     git reset --hard ${TRELLIS_REVISION}
+    git submodule update --init --recursive
     mkdir -p libtrellis/build
     pushd libtrellis/build
     cmake -DCMAKE_INSTALL_PREFIX=${PREFIX} ..
