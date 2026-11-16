@@ -444,7 +444,10 @@ void CommandHandler::setupContext(Context *ctx)
     }
 
     if (vm.count("threads")) {
-        ctx->settings[ctx->id("threads")] = vm["threads"].as<int>();
+        int threads = vm["threads"].as<int>();
+        if (threads < 1)
+            log_error("--threads must be at least 1 (got %d).\n", threads);
+        ctx->settings[ctx->id("threads")] = threads;
     }
 
     if (vm.count("randomize-seed")) {
