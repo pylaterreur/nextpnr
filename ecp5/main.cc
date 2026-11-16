@@ -105,7 +105,7 @@ void ECP5CommandHandler::customBitstream(Context *ctx)
                     "baseconfig in a special application, switch to using --override-basecfg.\n");
         basecfg = vm["basecfg"].as<std::string>();
     } else if (vm.count("override-basecfg")) {
-        basecfg = vm["basecfg"].as<std::string>();
+        basecfg = vm["override-basecfg"].as<std::string>();
     }
 
     if (bool_or_default(ctx->settings, ctx->id("arch.ooc")) && vm.count("textcfg"))
