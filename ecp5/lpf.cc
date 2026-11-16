@@ -104,11 +104,16 @@ bool Arch::apply_lpf(std::string filename, std::istream &in)
                             log_error("expected object type after FREQUENCY (on line %d)\n", lineno);
                         std::string etype = words.at(1);
                         if (etype == "PORT" || etype == "NET") {
-                            if (words.size() < 4)
-                                log_error("expected frequency value and unit after 'FREQUENCY %s' (on line %d)\n",
+                            if (words.size() < 5)
+                                log_error("expected target, frequency and unit after 'FREQUENCY %s' (on line %d)\n",
                                           etype.c_str(), lineno);
                             std::string target = strip_quotes(words.at(2));
-                            float freq = std::stof(words.at(3));
+                            float freq = 0;
+                            try {
+                                freq = std::stof(words.at(3));
+                            } catch (const std::logic_error &) {
+                                log_error("invalid frequency '%s' (on line %d)\n", words.at(3).c_str(), lineno);
+                            }
                             std::string unit = words.at(4);
                             boost::algorithm::to_upper(unit);
                             if (unit == "MHZ")
