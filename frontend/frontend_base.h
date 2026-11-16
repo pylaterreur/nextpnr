@@ -105,6 +105,7 @@
  *
  */
 
+#include <unordered_set>
 #include "design_utils.h"
 #include "log.h"
 #include "nextpnr.h"
@@ -137,6 +138,8 @@ template <typename FrontendType> struct GenericFrontend
         std::lock_guard<std::mutex> lock(ctx->mutex);
 #endif
 
+        check_for_recursive_instantiation(top.str(ctx));
+
         ctx->top_module = top;
         // Do the actual import, starting from the top level module
         import_module(m, top.str(ctx), top.str(ctx), mod_refs.at(top.str(ctx)));
@@ -155,6 +158,8 @@ template <typename FrontendType> struct GenericFrontend
 
     dict<IdString, ModuleInfo> mods;
     std::unordered_map<std::string, const mod_dat_t> mod_refs;
+    // blackbox and whitebox modules, which are not imported as submodules
+    std::unordered_set<std::string> box_modules;
     IdString top;
 
     // Process the list of modules and determine
@@ -173,6 +178,8 @@ template <typename FrontendType> struct GenericFrontend
                 else if (name == "whitebox")
                     mi.is_whitebox = (value.intval != 0);
             });
+            if (mi.is_box())
+                box_modules.insert(name);
             impl.foreach_cell(mod, [&](const std::string &name, const cell_dat_t &cell) {
                 mi.instantiated_celltypes.insert(ctx->id(impl.get_cell_type(cell)));
             });
@@ -217,6 +224,52 @@ template <typename FrontendType> struct GenericFrontend
             log_error("Failed to autodetect top module, please specify using --top.\n");
         }
         top = *(candidate_top.begin());
+    }
+
+    // Importing a module that instantiates itself, directly or through other modules, recurses until the stack is
+    // exhausted, so look for such a cycle before anything is imported. The walk goes by module name and keeps its path
+    // in a vector. A frame lists each module type once, with the first cell of that type.
+    void check_for_recursive_instantiation(const std::string &top_module)
+    {
+        struct Frame
+        {
+            std::string module;
+            std::vector<std::pair<std::string, std::string>> submodules; // module type and first cell
+            size_t next = 0;
+        };
+        std::unordered_set<std::string> in_progress, checked;
+        std::vector<Frame> path;
+        auto enter = [&](const std::string &module) {
+            Frame frame;
+            frame.module = module;
+            std::unordered_set<std::string> listed;
+            impl.foreach_cell(mod_refs.at(module), [&](const std::string &cellname, const cell_dat_t &cd) {
+                std::string type = impl.get_cell_type(cd);
+                // other types are imported as leaf cells
+                if (mod_refs.count(type) && !box_modules.count(type) && listed.insert(type).second)
+                    frame.submodules.emplace_back(type, cellname);
+            });
+            in_progress.insert(module);
+            path.push_back(std::move(frame));
+        };
+        enter(top_module);
+        while (!path.empty()) {
+            Frame &frame = path.back();
+            if (frame.next == frame.submodules.size()) {
+                in_progress.erase(frame.module);
+                checked.insert(frame.module);
+                path.pop_back();
+                continue;
+            }
+            const std::string type = frame.submodules.at(frame.next).first;
+            const std::string cellname = frame.submodules.at(frame.next).second;
+            frame.next++;
+            if (in_progress.count(type))
+                log_error("Module '%s' instantiates itself (cell '%s' in module '%s')\n", type.c_str(),
+                          cellname.c_str(), frame.module.c_str());
+            if (!checked.count(type))
+                enter(type);
+        }
     }
 
     // Create a unique name (guaranteed collision free) for a net or a cell; based on
