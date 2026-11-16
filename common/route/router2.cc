@@ -187,8 +187,15 @@ struct Router2
                 nets.at(i).cx += usr_loc.x;
                 nets.at(i).cy += usr_loc.y;
             }
-            nets.at(i).hpwl = std::max(
-                    std::abs(nets.at(i).bb.y1 - nets.at(i).bb.y0) + std::abs(nets.at(i).bb.x1 - nets.at(i).bb.x0), 1);
+            const bool has_bounding_box = nets.at(i).bb.x0 <= nets.at(i).bb.x1 && nets.at(i).bb.y0 <= nets.at(i).bb.y1;
+            if (has_bounding_box) {
+                nets.at(i).hpwl = std::max(std::abs(nets.at(i).bb.y1 - nets.at(i).bb.y0) +
+                                                   std::abs(nets.at(i).bb.x1 - nets.at(i).bb.x0),
+                                           1);
+            } else {
+                // No arc updated the bounding box (INT_MAX..INT_MIN), its extent would overflow int
+                nets.at(i).hpwl = 1;
+            }
             nets.at(i).cx /= int(ni->users.entries() + 1);
             nets.at(i).cy /= int(ni->users.entries() + 1);
             if (ctx->debug)
