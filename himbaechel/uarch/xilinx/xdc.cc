@@ -18,6 +18,7 @@
  */
 
 #include <boost/algorithm/string.hpp>
+#include <cmath>
 #include <fstream>
 #include <regex>
 
@@ -219,6 +220,13 @@ void XilinxImpl::parse_xdc(const std::string &filename)
                 } else if (opt == "-period") {
                     cursor++;
                     period = std::stod(arguments.at(cursor));
+                    // A clock period is more than 0 ns (std::stod also reads "nan" and "inf")
+                    if (!(std::isfinite(period) && period > 0)) {
+                        log_nonfatal_error("create_clock -period '%s' is not a positive number (on line %d)\n",
+                                           arguments.at(cursor).c_str(), lineno);
+                        num_errors++;
+                        goto nextline;
+                    }
                     got_period = true;
                 } else
                     break;
